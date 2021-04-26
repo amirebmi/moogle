@@ -118,7 +118,6 @@ end
 (*****************************************************************)
 (* Random Walk Ranker                                            *)
 (*****************************************************************)
-(*
 
 module type WALK_PARAMS =
 sig
@@ -137,9 +136,53 @@ struct
   module G = GA
   module NS = NSA
 
+  exception EMPTY_LIST
+  exception NODE_IS_NOT_IN_GRAPH
+  exception EMPTY_GRAPH
+
   (* TODO - fill this in*)
+
+
+  let rank g = 
+    let rec aux steps node nsmap = 
+      if steps = P.num_steps then nsmap
+      else 
+        (* check neighbors of node *)
+        match G.neighbors g node with
+        | None -> raise NODE_IS_NOT_IN_GRAPH
+        | Some ls -> (
+          match ls with 
+          (* if no neighbor, pick another randomNode from graph *)
+          | [] -> (
+            match G.get_random_node g with
+            | None -> raise EMPTY_GRAPH
+            | Some n -> aux (steps + 1) n (NS.add_score nsmap node 1.0)
+          )
+          (* if found neighbors, pick randomly one of neighbors 
+            or another random node in graph  based on result of 
+            P.do_random_jumps *)
+          | ls -> (
+            let new_nsmap = NS.add_score nsmap node 1.0 in
+            let rdNeighbor = List.nth ls (Random.int (List.length ls)) in
+            match P.do_random_jumps with
+            | None -> aux (steps + 1) rdNeighbor new_nsmap
+            | Some p -> 
+              if Random.float 1.0 <= p then 
+                match G.get_random_node g with
+                | None -> raise EMPTY_GRAPH
+                | Some n -> aux (steps + 1) n new_nsmap
+              else
+                aux (steps + 1) rdNeighbor new_nsmap
+          )
+        )
+    in 
+      match G.get_random_node g with
+      | None -> NS.empty
+      | Some n -> 
+          let nsmap = aux 0 n (NS.zero_node_score_map (G.nodes g)) in
+          NS.normalize(nsmap)
 end
-*)
+
 
 (*****************************************************************)
 (* KARMA                                                         *)
@@ -202,7 +245,7 @@ struct
 
 end
 
-(*
+
 module TestRandomWalkRanker =
 struct 
   module G = NamedGraph
@@ -231,9 +274,9 @@ struct
   let _ = Printf.printf "Testing RandomWalkRanker:\n NS: %s\n" 
     (NS.string_of_node_score_map ns) 
 
-(* That's the problem with randomness -- hard to test *)
+  (* That's the problem with randomness -- hard to test *)
 end
-*)
+
 
 
 (*
@@ -251,18 +294,15 @@ struct
                            let string_of_node = fun x -> x
                            let gen () = ""
                          end);;
-
   module Ranker = QuantumRanker (G) (NS) 
     (struct 
        let alpha = 0.01
        let num_steps = 1
        let debug = true
      end)
-
   let ns = Ranker.rank g
   let _ = Printf.printf "Testing Quantum ranker:\n %s\n" 
     (NS.string_of_node_score_map ns) 
-
 (* That's the problem with randomness -- hard to test *)
 end
 *)

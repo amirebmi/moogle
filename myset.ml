@@ -218,7 +218,6 @@ struct
     test_is_empty () ;
     test_singleton () ;
     ()
-
 end
 
 
@@ -226,18 +225,61 @@ end
 (* DictSet: a functor that creates a SET by calling our           *)
 (* Dict.Make functor                                              *)
 (******************************************************************)
-(*
+
 module DictSet(C : COMPARABLE) : (SET with type elt = C.t) = 
 struct
   module D = Dict.Make(struct
-      ??? fill this in!
-  end)
+    type key = C.t
+		type value = unit
+		let compare = C.compare
+    let string_of_key = C.string_of_t
+    let string_of_value = (fun () -> "")
 
+    let gen_key () = C.gen ()
+    let gen_key_gt x () = gen_key ()
+    let gen_key_lt x () = gen_key ()
+    let gen_key_random () = gen_key ()
+    let gen_key_between x y () = C.gen_between x y ()
+		let gen_value = (fun () -> ())
+    let gen_pair () = (gen_key(),gen_value())
+  end)
+  
   type elt = D.key
   type set = D.dict
-  let empty = ???
+  let empty = D.empty
 
   (* implement the rest of the functions in the signature! *)
+  let is_empty d = 
+    match D.choose d with
+      | None -> true
+      | Some _ -> false
+
+  let insert k d = D.insert d k ()
+
+  let singleton k = D.insert D.empty k ()
+
+  let union d d' = 
+    if d = D.empty then d'
+    else if d' = D.empty then d
+    else D.fold (fun k v d -> D.insert d' k v) D.empty d
+
+  let intersect d d' = 
+    let aux = fun k v d -> 
+                        if D.member d' k then D.insert d k v
+                        else d
+    in
+    D.fold aux D.empty d
+
+  let remove k d = D.remove d k
+
+  let member d k = D.member d k
+
+  let choose d = 
+    match D.choose d with
+      | None -> None
+      | Some (k, v, set) -> Some (k, set)
+  
+  let fold f b = D.fold (fun k v d -> f k d) b
 
   let string_of_elt = D.string_of_key
   let string_of_set s = D.string_of_dict s
@@ -250,29 +292,189 @@ struct
   (****************************************************************)
 
   (* add your test functions to run_tests *)
+
+  let test_is_empty () = 
+    assert (is_empty D.empty);
+
+    let randomK = C.gen_random() in
+    assert(not (is_empty (D.insert D.empty randomK ())));
+    ()
+  
+  let rec sizeSet s start =
+    match D.choose s with 
+    | None -> start
+    | Some (_, _, d) -> sizeSet d (start + 1)
+  
+  let test_insert () = 
+
+    let randomK = C.gen_random() in
+    let s1 = D.empty in
+
+    (* check size of s1 *)
+    assert(sizeSet s1 0 = 0);
+
+    (* make sure randomK is not in s1 *)
+    assert(is_empty s1);
+    assert(not (member s1 randomK));
+
+    (* insert randomK to s1 *)
+    let s = D.insert s1 randomK () in
+    (* test if randomK is in s1 now *)
+    assert(member s randomK);
+
+    (* check size of s after adding randomK *)
+    assert(sizeSet s 0 = 1);
+
+    (* test if we add randomK again to s, 
+    it won't change the size -> no duplicate *)
+    let s' = D.insert s randomK () in
+    assert(sizeSet s' 0 = 1);
+    assert(member s' randomK);
+    ()
+
+  let test_singleton () =
+    let randomK = C.gen_random() in
+
+    let s1 = singleton randomK in
+    assert(member s1 randomK);
+    assert(sizeSet s1 0 = 1);
+    ()
+
+  let test_union () = 
+    let k1 = C.gen_random() in
+    let k2 = C.gen_lt k1 () in
+
+    let s1 = singleton k1 in 
+    let s2 = singleton k2 in 
+    (* add k1 to s2 -> s12 = {k1, k2} *)
+    let s12 = D.insert s2 k1 () in
+
+    (* make sure s12 has 2 elements k1 and k2 *)
+    assert(sizeSet s12 0 = 2);
+
+    assert(union s1 s2 = s12);
+
+    (* union empty *)
+    assert(union D.empty D.empty = D.empty);
+    assert(union D.empty s12 = s12);
+    assert(union s12 D.empty = s12);
+    ()
+  
+  let test_intersect () =
+    let k1 = C.gen_random() in
+    let k2 = C.gen_gt k1 () in
+
+    let s1 = singleton k1 in 
+    let s2 = singleton k2 in 
+
+    (* s1 intersect s2 = 0 (size) or empty *)
+    assert(intersect s1 s2 = D.empty);
+    assert(sizeSet (intersect s1 s2) 0 = 0);
+
+    let s12 = D.insert s2 k1 () in
+    assert(intersect s12 s1 = s1);
+    assert(intersect s12 s2 = s2);
+    assert(member (intersect s12 s1) k1);
+    assert(member (intersect s12 s2) k2);
+
+    (* intersect empty set *)
+    assert(intersect D.empty D.empty = D.empty);
+    assert(intersect D.empty s12 = D.empty);
+    assert(intersect s12 D.empty = D.empty);
+    ()
+  
+  let test_remove () =
+    let k = C.gen_random() in
+
+    let s = singleton k in
+    assert(sizeSet s 0 = 1);
+    assert(member s k);
+    assert(remove k s = D.empty);
+
+    let s' = D.insert s (C.gen_gt k ()) () in
+    assert(sizeSet s' 0 = 2);
+    assert(sizeSet (remove k s') 0 = 1);
+    assert(not (member (remove k s') k));
+
+
+    (* remove from empty *)
+    assert(remove (C.gen()) D.empty = D.empty);
+    ()
+  
+  let test_member () =
+    let k = C.gen_random() in
+
+    let s = singleton k in
+
+    assert(member s k);
+    assert(not (member D.empty k));
+    ()
+    
+  let test_choose () =
+    let k = C.gen_random() in
+
+    let s = singleton k in
+
+    (* choose k from s *)
+    match choose s with
+    | None -> assert (false);
+    | Some (k', d) -> assert(k' = k); assert(d = D.empty);
+
+    let s' = D.insert s (C.gen_gt k ()) () in 
+    assert(sizeSet s' 0 = 2);
+
+    match choose s' with 
+    | None -> assert (false);
+    | Some (k', d) -> 
+      (* chosen k' is not in d *)  
+      assert(not (member d k')); 
+      (* size of d = s' - 1 *)
+      assert(sizeSet d 0 = (sizeSet s' 0) - 1);
+    ()
+
+  let test_fold () =
+    
+    let k = C.gen_random() in
+    let k1 = C.gen_gt k () in
+    let k2 = C.gen_gt k1 () in
+
+    let s = singleton k in
+    let s = D.insert s k1 () in
+    let s = D.insert s k2 () in
+    assert(sizeSet s 0 = 3);
+
+    let size_s = fold (fun x y -> y + 1) 0 s in
+    assert(size_s = sizeSet s 0);
+    ()
+
   let run_tests () = 
+    test_is_empty();
+    test_insert();
+    test_singleton();
+    test_union();
+    test_intersect();
+    test_remove();
+    test_member();
+    test_choose();
+    test_fold();
     ()
 end
-*)
-
-
 
 (******************************************************************)
 (* Run our tests.                                                 *)
 (******************************************************************)
 
 (* Create a set of ints using our ListSet functor. *)
-module IntListSet = ListSet(IntComparable) ;;
-IntListSet.run_tests();;
+(* module IntListSet = ListSet(IntComparable) ;;
+IntListSet.run_tests();; *)
 
 (* Create a set of ints using our DictSet functor
  * 
  * Uncomment out the lines below when you are ready to test your
  * 2-3 dict set implementation *)
-(*
+
 module IntDictSet = DictSet(IntComparable) ;;
 IntDictSet.run_tests();;
-*)
 
 
 (******************************************************************)
@@ -282,6 +484,5 @@ IntDictSet.run_tests();;
 module Make(C : COMPARABLE) : (SET with type elt = C.t) = 
   (* Change this line to use our dictionary implementation when your are 
    * finished. *)
-  ListSet (C)
-  (* DictSet (C) *)
-
+  (* ListSet (C) *)
+  DictSet (C)
