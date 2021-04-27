@@ -4,6 +4,7 @@
  * a set of URLs with each word that we find as we crawl the web.
  *)
 exception TODO
+exception INVALID_INSERT
 
 module type DICT = 
 sig
@@ -322,24 +323,20 @@ struct
   (* FOR INSERTION:
    * A kicked configuration returned by going downwards on insertion.
    * The key ideas are that:
-
        (i) you want insert_downward d1 k v to return Done d2 when you are 
            able to insert k and v into d1 and get back a d2 with exactly 
            the same height as d1
-
        (ii) you want insert_downward d1 k v to return Up(d3,  p, d4) when 
             there isn't room to create a new dict of the same height so 
             instead you are returning d3 and d4 (which have the same height 
             as d1) and another key-value pair p to serve as the root for a 
             larger tree. 
-
      When inserting into a 2-node, there is always room for a new key-value 
      pair, because a 2-node can become a 3-node.  That means that routines 
      that insert into two nodes should always be returning Done.  Sometimes 
      there is room within a tree topped by a 3-node and sometimes there 
      isn't.  So insertion into a 3-node sometimes returns Done and sometimes 
      returns Up.  Follow the handouts for the details.
-
    * We can only kick up Two nodes, hence Up takes a dict * pair * dict *)
   type kicked =
     | Up of dict * pair * dict
@@ -392,7 +389,7 @@ struct
     ) 
     in
     fold f "" d
-
+      
   (* Debugging function. This will print out the tree in text format.
    * Use this function to see the actual structure of your 2-3 tree. *
    *
@@ -437,7 +434,7 @@ struct
     | Less -> Done(Three(w_left,w,w_right,x,x_other))
     | Greater -> Done(Three(x_other,x,w_left,w,w_right))
     | Eq -> raise INVALID_INSERT
-
+ 
   (* Upward phase for w where its parent is a Three node whose (key,value) pairs
    * are is x and y, with the key of x less than the key of y.
    * One of x's children is w, and of the two remaining children, 
@@ -462,12 +459,13 @@ struct
     let (yk,yv) = y in
     match D.compare wk xk, D.compare wk yk with
     | Eq, _ | _, Eq -> raise INVALID_INSERT
-    
+    (* left subtree *)
     | Less, _ -> Up(Two(w_left,w,w_right), x, Two(other_left,y,other_right))
-
+    (* middle subtree *)
     | Greater, Less -> Up(Two(other_left,x,w_left), w, Two(w_right,y,other_right))
-
+    (* right subtree *)
     | _, Greater -> Up(Two(other_left,x,other_right), y, Two(w_left,w,w_right))
+
 
   (* Downward phase for inserting (k,v) into our dictionary d. 
    * The downward phase returns a "kicked" up configuration, where
@@ -520,13 +518,17 @@ struct
     | Less -> (
         let left = insert_downward left k v in
         match left with
+        (* Leaf -> insert up *)
         | Up(l,n,r) -> insert_upward_two n l r (k1,v1) right
+        (* Non-leaf -> re-balance tree *)
         | Done l -> Done(Two(l,(k1,v1),right))
     )
     | Greater ->
         let right = insert_downward right k v in
         match right with 
+        (* Leaf -> insert up *)
         | Up(l,n,r) -> insert_upward_two n l r (k1,v1) left
+        (* Non-leaf -> re-balance tree *)
         | Done r -> Done(Two(left,(k1,v1),r))
 
   (* Downward phase on a Three node. (k,v) is the (key,value) we are inserting,
@@ -537,24 +539,28 @@ struct
     match (D.compare k k1, D.compare k k2) with
     | Eq, _ -> Done(Three(left,(k,v),middle,(k2,v2),right))
     | _, Eq -> Done(Three(left,(k1,v1),middle,(k,v),right))
+    (* left subtree *)
     | Less, _ -> (
       let left = insert_downward left k v in
       match left with 
       | Up(l,n,r) -> insert_upward_three n l r (k1,v1) (k2,v2) middle right
       | Done l -> Done(Three(l,(k1,v1),middle,(k2,v2),right))
     )
+    (* middle subtree *)
     | Greater, Less -> (
       let mid = insert_downward middle k v in
       match mid with
       | Up(l,n,r) -> insert_upward_three n l r (k1,v1) (k2,v2) left right
       | Done m -> Done(Three(left,(k1,v1),m,(k2,v2),right))
     )
+    (* right subtree *)
     | _ , Greater -> (
       let right = insert_downward right k v in
       match right with
       | Up(l,n,r) -> insert_upward_three n l r (k1,v1) (k2,v2) left middle
       | Done r -> Done(Three(left,(k1,v1),middle,(k2,v2),r))
     )
+    
 
   (* We insert (k,v) into our dict using insert_downward, which gives us
    * "kicked" up configuration. We return the tree contained in the "kicked"
@@ -750,8 +756,11 @@ struct
 
   (* How are you testing that you tree is balanced? 
    * ANSWER: 
-   * Avoid duplication by adding height to the list. If length is 1, it means balanced; otherwise unbalanced.
+   *    Reach to every leaf and add height to List with no duplicate.
+        If, after all, the length of List = 1 -> balanced (only 1 height)
+        otherwise, NOT balanced.
    *)
+
   let rec balanced (d: dict) : bool =
     let rec aux d ls h =
       match d with
@@ -766,7 +775,6 @@ struct
     in
     let ls = aux d [] 0 in
     List.length ls = 1
-
 
   (********************************************************************)
   (*       TESTS                                                      *)
@@ -895,6 +903,7 @@ struct
     assert(balanced r5) ;
     () 
 
+ 
   let run_tests () = 
     test_balanced() ;
     test_remove_nothing() ;
@@ -905,6 +914,7 @@ struct
     ()
 
 end
+
 
 
 
@@ -923,8 +933,9 @@ IntStringListDict.run_tests();; *)
  * Uncomment out the lines below when you are ready to test your
  * 2-3 tree implementation. *)
 
- module IntStringBTDict = BTDict(IntStringDictArg) ;;
- IntStringBTDict.run_tests();;
+module IntStringBTDict = BTDict(IntStringDictArg) ;;
+IntStringBTDict.run_tests();;
+
 
 
 
@@ -938,4 +949,3 @@ module Make (D:DICT_ARG) : (DICT with type key = D.key
    * done implementing your 2-3 trees. *)
   (* AssocListDict(D) *)
   BTDict(D)
-
