@@ -6,13 +6,13 @@ open Pagerank ;;
 
 (* RandomWalkRanker and QuantumRanker are for karma questions only *)
 module MoogleRanker
-  = InDegreeRanker (PageGraph) (PageScore)
-  (*
-     = RandomWalkRanker (PageGraph) (PageScore) (struct 
-       let do_random_jumps = Some 0.20
-       let num_steps = 1000
-     end)
-  *)
+  (* = InDegreeRanker (PageGraph) (PageScore) *)
+  
+  = RandomWalkRanker (PageGraph) (PageScore) (struct 
+    let do_random_jumps = Some 0.20
+    let num_steps = 1000
+  end)
+ 
   (*  
    = QuantumRanker (PageGraph) (PageScore) (struct 
        let alpha = 0.01
@@ -65,38 +65,49 @@ let print s =
  *
  * Keep crawling until we've
  * reached the maximum number of links (n) or the frontier is empty. *)
+
+let rec sizeSet s start =
+  match LinkSet.choose s with 
+  | None -> start
+  | Some (_, s') -> sizeSet s' (start + 1)
+;;
+
 let rec crawl (n:int) (frontier: LinkSet.set)
-(visited : LinkSet.set) (d : WordDict.dict) : WordDict.dict =
-match n with 
-  0 -> Printf.printf "Finished because we hit the crawl limit\n" ; d
-| _ -> if (LinkSet.is_empty frontier) 
-       then (Printf.printf "Finished because frontier is empty\n" ; d)
-       else
-        let (link, frontier') = get (LinkSet.choose frontier)  in
-        Printf.printf "Getting the page for the link: %s\n" (string_of_link link) ;
-        try
-        let {words; _} = match (get_page link) with 
-        | Some page -> page 
-        | None -> raise Page_not_found in 
-        let lookup_in_lset = (fun d word -> 
-                      match WordDict.lookup d word with
-                        None -> LinkSet.empty
-                      | Some lset -> lset) in
-        let add_link = (fun d word -> 
-                          WordDict.insert d word 
-                            (LinkSet.insert link (lookup_in_lset d word))) in
-        let d' = List.fold_left add_link d words in
-        let is_new_link = (fun link -> 
-                            not (LinkSet.member frontier' link) &&
-                            not (LinkSet.member visited link)) in
-        let {links = page_links; _ } = get (get_page link) in
-        let new_links_set = List.fold_left (fun set link -> LinkSet.insert link set)
-                              LinkSet.empty
-                              (List.filter is_new_link page_links) 
-                               in 
-        crawl (n - 1) (LinkSet.union new_links_set frontier')
-          (LinkSet.insert link visited) d'
-        with Page_not_found -> crawl n frontier' visited d
+    (visited : LinkSet.set) (d:WordDict.dict) : WordDict.dict = 
+
+  if sizeSet visited 0  = n then d 
+  else 
+    match LinkSet.choose frontier with
+    (* if frontier is empty *)
+    | None -> d 
+    | Some (ele, f') ->
+      (* if already visited, simply move to the rest of the set  *)
+      if LinkSet.member visited ele then crawl n f' visited d
+      (* if not, visit it  *)
+      else 
+        (* get page of the link *)
+        match CrawlerServices.get_page ele with
+        (* if page is empty, no link to visit, move on *)
+        | None -> crawl n f' visited d
+        | Some page -> 
+          let new_visited = LinkSet.insert ele visited in
+          (* add all links in page to the f' *)
+          let new_f' = List.fold_left (fun f l -> LinkSet.insert l f) f' page.links in
+          (* add words to dic *)
+          match page.words with 
+          (* if words list is empty, no adding, move on *)
+          | [] -> crawl n f' visited d
+          | wds ->
+            let new_dict = List.fold_left (
+              fun d w -> 
+                let w = String.lowercase_ascii w in
+                match WordDict.lookup d w with
+                (* if there is no value for the word, create one *)
+                | None -> WordDict.insert d w (LinkSet.singleton ele)
+                (* if there are already some values, add the new one to the list *)
+                | Some v -> WordDict.insert d w (LinkSet.insert ele v)
+            ) d wds
+            in crawl n new_f' new_visited new_dict
 ;;
 
 let crawler () = 
